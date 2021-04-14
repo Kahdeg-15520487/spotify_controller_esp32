@@ -19,6 +19,7 @@
 
 #include "cmd.h"
 #include "pin.h"
+#include "secret.h"
 
 // Country code, including this is advisable
 
@@ -30,8 +31,9 @@ char clientSecret[] = SPOTIFY_CLIENT_SECRET; // Your client Secret of your spoti
 WiFiClientSecure client;
 ArduinoSpotify spotify(client, clientId, clientSecret, SPOTIFY_REFRESH_TOKEN);
 
-unsigned long delayBetweenRequests = 60000; // Time between requests (1 minute)
-unsigned long requestDueTime;               //time when request due
+unsigned long delayBetweenRequests = 30000; // Time between requests (30s)
+unsigned long requestDueTime;               // Time when request due
+unsigned long endOfSongTime;                // Time when current song end
 unsigned long delayBetweenRolls = 200;
 unsigned long rollDueTime;
 bool isFirstRoll = true;
@@ -96,6 +98,8 @@ void setup()
 //        delay(5000);
 //    }
 
+    Serial.println(_SSID);
+    Serial.println(_SSID_PWD);
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
     Serial.println("");
@@ -268,6 +272,11 @@ void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
 //            Serial.println();
 //        }
 //        Serial.println("------------------------");
+
+        long progress = currentlyPlaying.progressMs; // duration passed in the song
+        long duration = currentlyPlaying.duraitonMs; // Length of Song
+        long remainingDuration = duration - progress;
+        endOfSongTime = millis() + remainingDuration;
         
         currentSongName = getSafeName(currentlyPlaying.trackName);
         currentSongName += "          ";
@@ -419,12 +428,14 @@ void getSpotifyPlayingSong(){
 
 void loop()
 {
-  if (millis() > requestDueTime)
+  unsigned long currentTime = millis();
+  if (currentTime > requestDueTime
+   || currentTime > endOfSongTime)
   {
     getSpotifyPlayingSong();
   }
 
-  if (isPlaying && millis() > rollDueTime){
+  if (isPlaying && currentTime > rollDueTime){
     printCurrentlyPlayingToLCD();
   }
 
