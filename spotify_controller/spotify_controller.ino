@@ -38,9 +38,12 @@ unsigned long delayBetweenRolls = 200;
 unsigned long rollDueTime;
 bool isFirstRoll = true;
 
+unsigned long currentSongHash;
 String currentSongName;
 String currentArtistName;
 bool isPlaying = false;
+
+bool isSleep = false;
 
 
 U8G2_SSD1309_128X64_NONAME2_F_4W_SW_SPI u8g2(U8G2_R0,
@@ -56,6 +59,24 @@ PCF8563_Class rtc;
 const char *ntpServer           = "pool.ntp.org";
 const long  gmtOffset_sec       = 28800;
 const int   daylightOffset_sec  = 0;
+
+uint8_t spinStep = 0;
+char getSpin(){
+  switch (spinStep){
+    case 0:
+      spinStep = 1;
+      return '-';
+    case 1:
+      spinStep = 2;
+      return '/';
+    case 2:
+      spinStep = 3;
+      return '|';
+    case 3:
+      spinStep = 0;
+      return '\\';
+  }
+}
 
 void setup()
 {    
@@ -81,9 +102,12 @@ void setup()
     u8g2.begin();
     u8g2.enableUTF8Print();
     u8g2.clearBuffer();
-    u8g2.setFont(u8g2_font_unifont_t_vietnamese2);
+//    u8g2.setFont(u8g2_font_unifont_t_vietnamese2);  // 12 pixel font
+//    u8g2.setFont(u8g2_font_profont10_mf);           // 6 pixel font
+    u8g2.setFont(u8g2_font_profont12_mf);             // 10 pixel font
     u8g2.setDrawColor(1);
     u8g2.sendBuffer();
+    //"-\|/"
 
     Wire.begin(RTC_SDA, RTC_SCL);
     rtc.begin();
@@ -107,9 +131,24 @@ void setup()
     // Wait for connection
     while (WiFi.status() != WL_CONNECTED)
     {
-        delay(500);
-        Serial.print(".");
+      delay(500);
+      Serial.print(".");
+      u8g2.clearBuffer();
+      u8g2.setCursor(0, 13);
+      u8g2.print("Connecting to ");
+      u8g2.print(getSpin());
+      u8g2.setCursor(0, 26);
+      u8g2.print(ssid);
+      u8g2.sendBuffer();
     }
+    u8g2.clearBuffer();
+    u8g2.setCursor(0, 13);
+    u8g2.print("Connected to ");
+    u8g2.setCursor(0, 26);
+    u8g2.print(ssid);
+    u8g2.setCursor(0, 39);
+    u8g2.print(WiFi.localIP());
+    u8g2.sendBuffer();
     Serial.println("");
     Serial.print("Connected to ");
     Serial.println(ssid);
@@ -130,6 +169,17 @@ void setup()
     irrecv.enableIRIn(); // Start the receiver
 }
 
+unsigned long hash(char *str)
+{
+    unsigned long hash = 5381;
+    int c;
+
+    while (c = *str++)
+        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+    return hash;
+}
+
 String rollString(String s){
   char firstChar = s[0];
   uint8_t l = s.length();
@@ -145,15 +195,10 @@ String rollString(String s){
 
 void singleCharPrintToLCD(String s,uint8_t l){
   l = s.length() < l ? s.length() : l;
-
-  if(l==0) return;
-  
-  char sc = '\0';
-  String b = String("");
+  if(l==0) return;  
   for(uint8_t i=0;i<l;i++){
-    b += s[i];
+    u8g2.print(s[i]);
   }
-  u8g2.print(b);
 }
 
 const char* serverName = "http://kahdeg.ddns.net:10900/api/vs/";
@@ -169,7 +214,7 @@ String getSafeName(String s){
 
   // Set content-type
 //  http.addHeader("Content-Type", "text/plain");
-http.addHeader("Content-Type", "application/json");
+  http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "text/plain");
   
   // Send HTTP GET request
@@ -216,8 +261,9 @@ void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
 
         Serial.print("Track: ");
         Serial.println(currentlyPlaying.trackName);
-//        Serial.print("Track URI: ");
-//        Serial.println(currentlyPlaying.trackUri);
+        Serial.print("Track URI: ");
+        unsigned long newSongHash = hash(currentlyPlaying.trackUri);
+        Serial.println(newSongHash);
 //        Serial.println();
 
         Serial.print("Artist: ");
@@ -257,32 +303,35 @@ void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
 //        Serial.println(">");
 //        Serial.println();
 //
-//        // will be in order of widest to narrowest
-//        // currentlyPlaying.numImages is the number of images that
-//        // are stored
-//        for (int i = 0; i < currentlyPlaying.numImages; i++)
-//        {
-//            Serial.println("------------------------");
-//            Serial.print("Album Image: ");
-//            Serial.println(currentlyPlaying.albumImages[i].url);
-//            Serial.print("Dimensions: ");
-//            Serial.print(currentlyPlaying.albumImages[i].width);
-//            Serial.print(" x ");
-//            Serial.print(currentlyPlaying.albumImages[i].height);
-//            Serial.println();
-//        }
-//        Serial.println("------------------------");
+        // will be in order of widest to narrowest
+        // currentlyPlaying.numImages is the number of images that
+        // are stored
+        for (int i = 0; i < currentlyPlaying.numImages; i++)
+        {
+            Serial.println("------------------------");
+            Serial.print("Album Image: ");
+            Serial.println(currentlyPlaying.albumImages[i].url);
+            Serial.print("Dimensions: ");
+            Serial.print(currentlyPlaying.albumImages[i].width);
+            Serial.print(" x ");
+            Serial.print(currentlyPlaying.albumImages[i].height);
+            Serial.println();
+        }
+        Serial.println("------------------------");
 
         long progress = currentlyPlaying.progressMs; // duration passed in the song
         long duration = currentlyPlaying.duraitonMs; // Length of Song
         long remainingDuration = duration - progress;
         endOfSongTime = millis() + remainingDuration;
-        
-        currentSongName = getSafeName(currentlyPlaying.trackName);
-        currentSongName += "          ";
-        currentArtistName = getSafeName(currentlyPlaying.firstArtistName);
-        currentArtistName += "          ";
-        isFirstRoll = true;
+
+        if (currentSongHash != newSongHash){
+          currentSongHash = newSongHash;
+          currentSongName = getSafeName(currentlyPlaying.trackName);
+          currentSongName += "          ";
+          currentArtistName = getSafeName(currentlyPlaying.firstArtistName);
+          currentArtistName += "     ";
+          isFirstRoll = true;
+        }
     }
 }
 
@@ -293,10 +342,10 @@ void printCurrentlyPlayingToLCD()
     currentArtistName = rollString(currentArtistName);
   }
   u8g2.clearBuffer();
-  u8g2.setCursor(0, 13);
+  u8g2.setCursor(0, 13);  // 8 + 5
   singleCharPrintToLCD(currentSongName,15);
-  u8g2.setCursor(0, 30);  //11 + 10 + 5
-  singleCharPrintToLCD(currentArtistName,15);  
+  u8g2.setCursor(0, 26);  // 13 + 8 + 5
+  singleCharPrintToLCD(currentArtistName,10);  
   u8g2.sendBuffer();
 
   if (!isFirstRoll){
@@ -428,68 +477,80 @@ void getSpotifyPlayingSong(){
 
 void loop()
 {
-  unsigned long currentTime = millis();
-  if (currentTime > requestDueTime
-   || currentTime > endOfSongTime)
-  {
-    getSpotifyPlayingSong();
-  }
-
-  if (isPlaying && currentTime > rollDueTime){
-    printCurrentlyPlayingToLCD();
+  if (!isSleep){
+    unsigned long currentTime = millis();
+    if (currentTime > requestDueTime
+     || currentTime > endOfSongTime)
+    {
+      getSpotifyPlayingSong();
+    }
+  
+    if (isPlaying && currentTime > rollDueTime){
+      printCurrentlyPlayingToLCD();
+    }
   }
 
   uint8_t cmd = handleIRRemote();
 
-  switch (cmd){
-    case CMD_NULL:
-      break;
-      
-    case CMD_SLEEP:
-      break;
-      
-    case CMD_PLAY:
-      if(isPlaying){
-        Serial.print("Pausing ...");
-        spotify.pause();
-        isPlaying = false;
-      } else {
-        Serial.print("Resuming ...");
-        spotify.play();
-        isPlaying = true;
-      }
-      break;
-      
-    case CMD_NEXT:
-      Serial.print("Skipping to next track...");
-      if(spotify.nextTrack()){
-          Serial.println("done!");
-      }
-      getSpotifyPlayingSong();
-      break;
-      
-    case CMD_PREV:
-      Serial.print("Going to previous track...");
-      if(spotify.previousTrack()){
-          Serial.println("done!");
-      }
-      getSpotifyPlayingSong();
-      break;
-      
-    case CMD_VOLUP:
-      break;
-      
-    case CMD_VOLDOWN:
-      break;
-      
-    case CMD_CHECK:
-      {
+  if (cmd == CMD_SLEEP){
+    isSleep = !isSleep;
+    if(isSleep){
+      u8g2.setPowerSave(1);
+    } else {
+      u8g2.setPowerSave(0);
+    }
+  }
+  else{
+    switch (cmd){
+      case CMD_NULL:
+        break;
+        
+      case CMD_SLEEP:
+        break;
+        
+      case CMD_PLAY:
+        if(isPlaying){
+          Serial.print("Pausing ...");
+          spotify.pause();
+          isPlaying = false;
+        } else {
+          Serial.print("Resuming ...");
+          spotify.play();
+          isPlaying = true;
+        }
+        break;
+        
+      case CMD_NEXT:
+        Serial.print("Skipping to next track...");
+        if(spotify.nextTrack()){
+            Serial.println("done!");
+        }
         getSpotifyPlayingSong();
-      }
-      break;
-      
-    default:
-      break;
+        break;
+        
+      case CMD_PREV:
+        Serial.print("Going to previous track...");
+        if(spotify.previousTrack()){
+            Serial.println("done!");
+        }
+        getSpotifyPlayingSong();
+        break;
+        
+      case CMD_VOLUP:
+        break;
+        
+      case CMD_VOLDOWN:
+        break;
+        
+      case CMD_CHECK:
+        {
+          getSpotifyPlayingSong();
+        }
+        break;
+        
+      default:
+        break;
+    }
   }
 
   delay(100);
