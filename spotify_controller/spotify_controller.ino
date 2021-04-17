@@ -31,8 +31,17 @@ char clientSecret[] = SPOTIFY_CLIENT_SECRET; // Your client Secret of your spoti
 WiFiClientSecure client;
 ArduinoSpotify spotify(client, clientId, clientSecret, SPOTIFY_REFRESH_TOKEN);
 
+struct _time{
+  uint8_t minutes;
+  uint8_t seconds;
+  uint8_t totalSeconds;
+};
+
 unsigned long delayBetweenRequests = 30000; // Time between requests (30s)
 unsigned long requestDueTime;               // Time when request due
+_time currentSongProgress;
+_time currentSongDuration_;
+unsigned long startOfSongTime;              // Time when current song started
 unsigned long endOfSongTime;                // Time when current song end
 unsigned long delayBetweenRolls = 200;
 unsigned long rollDueTime;
@@ -161,9 +170,16 @@ void setup()
     // uncomment the "#define SPOTIFY_DEBUG" in ArduinoSpotify.h
 
     Serial.println("Refreshing Access Tokens");
+    u8g2.setCursor(0, 52);
+    u8g2.print("Connecting to Spotify");
+    u8g2.sendBuffer();
     if (!spotify.refreshAccessToken())
     {
-        Serial.println("Failed to get access tokens");
+      Serial.println("Failed to get access tokens");
+      u8g2.clearBuffer();
+      u8g2.setCursor(0, 13);
+      u8g2.print("Failed to connect to Spotify!");
+      u8g2.sendBuffer();
     }
     
     irrecv.enableIRIn(); // Start the receiver
@@ -261,9 +277,9 @@ void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
 
         Serial.print("Track: ");
         Serial.println(currentlyPlaying.trackName);
-        Serial.print("Track URI: ");
-        unsigned long newSongHash = hash(currentlyPlaying.trackUri);
-        Serial.println(newSongHash);
+//        Serial.print("Track URI: ");
+        
+//        Serial.println(newSongHash);
 //        Serial.println();
 
         Serial.print("Artist: ");
@@ -321,9 +337,35 @@ void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
 
         long progress = currentlyPlaying.progressMs; // duration passed in the song
         long duration = currentlyPlaying.duraitonMs; // Length of Song
+        Serial.print("Elapsed time of song (ms): ");
+        Serial.print(progress);
+        Serial.print(" of ");
+        Serial.println(duration);
+        Serial.println();
+        
+        currentSongProgress.minutes = progress / 60000;
+        currentSongProgress.seconds = (progress / 1000) % 60;
+        currentSongProgress.totalSeconds = (float)progress / 1000;
+        
+        currentSongDuration_.minutes = duration / 60000;
+        currentSongDuration_.seconds = (duration / 1000) % 60;
+        currentSongDuration_.totalSeconds = currentSongDuration_.minutes * 60 + currentSongDuration_.seconds;
+        
+        unsigned long currentTime = millis();
         long remainingDuration = duration - progress;
-        endOfSongTime = millis() + remainingDuration;
+        startOfSongTime = currentTime - progress;
+        endOfSongTime = currentTime + remainingDuration;
+          
+        
+        Serial.print("Elapsed time of song (s): ");
+        Serial.print(currentSongProgress.totalSeconds);
+        Serial.print(" of ");
+        Serial.println(currentSongDuration_.minutes * 60 + currentSongDuration_.seconds);
+        Serial.println(currentSongDuration_.totalSeconds);
+        Serial.println(currentSongDuration_.minutes);
+        
 
+        unsigned long newSongHash = hash(currentlyPlaying.trackUri);
         if (currentSongHash != newSongHash){
           currentSongHash = newSongHash;
           currentSongName = getSafeName(currentlyPlaying.trackName);
@@ -335,18 +377,24 @@ void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
     }
 }
 
+void printLeadingZeroesNumber(uint8_t n){
+  if (n<10) u8g2.print('0');
+  u8g2.print(n);
+}
+
 void printCurrentlyPlayingToLCD()
-{            
+{
+  // render track info
   if (!isFirstRoll){
     currentSongName = rollString(currentSongName);
     currentArtistName = rollString(currentArtistName);
   }
   u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_profont12_mf);
   u8g2.setCursor(0, 13);  // 8 + 5
-  singleCharPrintToLCD(currentSongName,15);
+  singleCharPrintToLCD(currentSongName,20);
   u8g2.setCursor(0, 26);  // 13 + 8 + 5
-  singleCharPrintToLCD(currentArtistName,10);  
-  u8g2.sendBuffer();
+  singleCharPrintToLCD(currentArtistName,20);
 
   if (!isFirstRoll){
     rollDueTime = millis() + delayBetweenRolls;
@@ -354,6 +402,46 @@ void printCurrentlyPlayingToLCD()
     rollDueTime = millis() + 2000;
     isFirstRoll = false;
   }
+
+  // update currentSongProgress
+  unsigned long currentTime = millis();
+  unsigned long progress = currentTime - startOfSongTime;
+  unsigned long duration = (currentSongDuration_.minutes * 60 + currentSongDuration_.seconds) * 1000;
+  currentSongProgress.minutes = progress / 60000;
+  currentSongProgress.seconds = (progress / 1000) % 60;
+  currentSongProgress.totalSeconds = progress / 1000;
+  float percentage = ((float)progress / (float)duration) * 100;
+  uint8_t clampedPercentage = map((int)percentage,0,100,0,30);
+//  Serial.print(progress / 1000);
+//  Serial.print("/");
+//  Serial.println(duration / 1000);
+//  Serial.println(currentSongDuration_.totalSeconds);
+//  Serial.print(percentage);
+//  Serial.print("%|");
+//  Serial.print(clampedPercentage);
+//  Serial.println("/30");
+  
+  // render progress
+  u8g2.setCursor(0, 39);  // 13 + 13 + 8 + 5
+  printLeadingZeroesNumber(currentSongProgress.minutes);
+  u8g2.print(':');
+  printLeadingZeroesNumber(currentSongProgress.seconds);
+  u8g2.print('/');
+  printLeadingZeroesNumber(currentSongDuration_.minutes);
+  u8g2.print(':');
+  printLeadingZeroesNumber(currentSongDuration_.seconds);
+  u8g2.setFont(u8g2_font_4x6_mf);
+  u8g2.setCursor(0, 52);  // 13 + 13 + 13 + 8 + 5
+  for (int j = 0; j < clampedPercentage; j++)
+  {
+    u8g2.print("=");
+  }
+  for (int j = clampedPercentage; j < 30; j++)
+  {
+    u8g2.print("-");
+  }
+  
+  u8g2.sendBuffer();
 }
 
 uint8_t handleIRRemote(){
