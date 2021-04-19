@@ -1,11 +1,13 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <WebServer.h>
+#include <time.h>
+#include <AutoConnect.h>
 
 #include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>
-#include <WiFi.h>
 #include <IRremote.h>
 #include <Adafruit_AHTX0.h>
 #include <Adafruit_BMP280.h>
@@ -42,7 +44,7 @@ unsigned long requestDueTime;               // Time when request due
 _time currentSongProgress;
 _time currentSongDuration_;
 unsigned long startOfSongTime;              // Time when current song started
-unsigned long endOfSongTime;                // Time when current song end
+unsigned long endOfSongTime = 0;                // Time when current song end
 unsigned long delayBetweenRolls = 200;
 unsigned long rollDueTime;
 bool isFirstRoll = true;
@@ -86,6 +88,14 @@ char getSpin(){
       return '\\';
   }
 }
+
+WebServer Server;
+
+AutoConnect       Portal(Server);
+AutoConnectConfig Config;       // Enable autoReconnect supported on v0.9.4
+
+bool isWifiConnected = false;
+bool isSpotifyConnected = false;
 
 void setup()
 {    
@@ -131,38 +141,42 @@ void setup()
 //        delay(5000);
 //    }
 
-    Serial.println(_SSID);
-    Serial.println(_SSID_PWD);
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-    Serial.println("");
-
-    // Wait for connection
-    while (WiFi.status() != WL_CONNECTED)
-    {
-      delay(500);
-      Serial.print(".");
+    // Enable saved past credential by autoReconnect option,
+    // even once it is disconnected.
+    Config.autoReconnect = true;
+    Portal.config(Config);
+    
+    // Establish a connection with an autoReconnect option.
+    if (Portal.begin()) {
+      Serial.println("WiFi connected: " + WiFi.localIP().toString());
+      isWifiConnected = true;
       u8g2.clearBuffer();
       u8g2.setCursor(0, 13);
-      u8g2.print("Connecting to ");
-      u8g2.print(getSpin());
+      u8g2.print("Connected to ");
       u8g2.setCursor(0, 26);
-      u8g2.print(ssid);
+      u8g2.print(WiFi.SSID());
+      u8g2.setCursor(0, 39);
+      u8g2.print(WiFi.localIP());
       u8g2.sendBuffer();
+      Serial.println("");
+      Serial.print("Connected to ");
+      Serial.println(WiFi.SSID());
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+    } else {
+      isWifiConnected = false;      
+      Serial.print(".");
+      for(uint8_t ii = 0; ii<8; ii++){
+        u8g2.clearBuffer();
+        u8g2.setCursor(0, 13);
+        u8g2.print("Connecting to Wifi");
+        u8g2.print(getSpin());
+        u8g2.sendBuffer();
+        delay(250);
+      }
+      Serial.println();
+      return;
     }
-    u8g2.clearBuffer();
-    u8g2.setCursor(0, 13);
-    u8g2.print("Connected to ");
-    u8g2.setCursor(0, 26);
-    u8g2.print(ssid);
-    u8g2.setCursor(0, 39);
-    u8g2.print(WiFi.localIP());
-    u8g2.sendBuffer();
-    Serial.println("");
-    Serial.print("Connected to ");
-    Serial.println(ssid);
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
 
     client.setCACert(spotify_server_cert);
 
@@ -555,6 +569,10 @@ void getSpotifyPlayingSong(){
     Serial.println(ESP.getFreeHeap());
 
     Serial.println("getting currently playing song:");
+    u8g2.clearBuffer();
+    u8g2.setCursor(0,13);
+    u8g2.print("Getting spotify info");
+    u8g2.sendBuffer();
     // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
     CurrentlyPlaying currentlyPlaying = spotify.getCurrentlyPlaying();
 
@@ -565,10 +583,23 @@ void getSpotifyPlayingSong(){
 
 void loop()
 {
+  if(!isWifiConnected){
+    Serial.print(".");
+    u8g2.clearBuffer();
+    u8g2.setCursor(0, 13);
+    u8g2.print("Connecting to ");
+    u8g2.print(getSpin());
+    u8g2.setCursor(0, 26);
+    u8g2.print(ssid);
+    u8g2.sendBuffer();
+    delay(500);
+    return;
+  }
+  
   if (!isSleep){
     unsigned long currentTime = millis();
     if (currentTime > requestDueTime
-     || currentTime > endOfSongTime)
+     ||(currentTime > endOfSongTime && endOfSongTime > 0 ))
     {
       getSpotifyPlayingSong();
     }
