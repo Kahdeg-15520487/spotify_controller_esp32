@@ -582,6 +582,8 @@ void getSpotifyPlayingSong(){
     requestDueTime = millis() + delayBetweenRequests;
 }
 
+unsigned long spinDueTime;
+
 void loop()
 {
   if(!isWifiConnected){
@@ -597,8 +599,9 @@ void loop()
     return;
   }
   
+  unsigned long currentTime = millis();
+  
   if (!isSleep){
-    unsigned long currentTime = millis();
     if (currentTime > requestDueTime
      ||(currentTime > endOfSongTime && endOfSongTime > 0 ))
     {
@@ -608,6 +611,16 @@ void loop()
     if (isPlaying && currentTime > rollDueTime){
       printCurrentlyPlayingToLCD();
     }
+  }
+
+  if (!isPlaying && currentTime > spinDueTime){
+    spinDueTime = currentTime + 100;
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_profont12_mf);
+    u8g2.setCursor(0,13);
+    u8g2.print("Paused...");
+    u8g2.print(getSpin());
+    u8g2.sendBuffer();
   }
 
   uint8_t cmd = handleIRRemote();
