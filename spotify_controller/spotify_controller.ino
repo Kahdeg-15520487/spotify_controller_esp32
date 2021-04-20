@@ -569,11 +569,14 @@ void getSpotifyPlayingSong(){
     Serial.println(ESP.getFreeHeap());
 
     Serial.println("getting currently playing song:");
-    u8g2.clearBuffer();
-    u8g2.setFont(u8g2_font_profont12_mf);
-    u8g2.setCursor(0,13);
-    u8g2.print("Getting spotify info");
-    u8g2.sendBuffer();
+    if(!isPlaying){
+      // only render if there is no active song
+      u8g2.clearBuffer();
+      u8g2.setFont(u8g2_font_profont12_mf);
+      u8g2.setCursor(0,13);
+      u8g2.print("Getting spotify info");
+      u8g2.sendBuffer();
+    }
     // Market can be excluded if you want e.g. spotify.getCurrentlyPlaying()
     CurrentlyPlaying currentlyPlaying = spotify.getCurrentlyPlaying();
 
