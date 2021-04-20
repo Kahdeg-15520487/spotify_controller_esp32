@@ -126,6 +126,7 @@ void setup()
     u8g2.setFont(u8g2_font_profont12_mf);             // 10 pixel font
     u8g2.setDrawColor(1);
     u8g2.sendBuffer();
+    u8g2.setCursor(0,13);
     //"-\|/"
 
     Wire.begin(RTC_SDA, RTC_SCL);
@@ -383,9 +384,21 @@ void printCurrentlyPlayingToSerial(CurrentlyPlaying currentlyPlaying)
         if (currentSongHash != newSongHash){
           currentSongHash = newSongHash;
           currentSongName = getSafeName(currentlyPlaying.trackName);
-          currentSongName += "          ";
+          if ( currentSongName.length() >= 21 ){
+            currentSongName += "     ";
+          } else {
+            for (uint8_t i = currentSongName.length();i<21;i++){
+              currentSongName += ' ';
+            }
+          }
           currentArtistName = getSafeName(currentlyPlaying.firstArtistName);
-          currentArtistName += "     ";
+          if ( currentArtistName.length() >= 21 ){
+            currentArtistName += "     ";
+          } else {
+            for (uint8_t i = currentArtistName.length();i<21;i++){
+              currentArtistName += ' ';
+            }
+          }
           isFirstRoll = true;
         }
     }
